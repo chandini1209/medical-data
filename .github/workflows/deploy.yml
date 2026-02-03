@@ -48,7 +48,9 @@ jobs:
 
       - name: Terraform Init
         run: |
-          terraform init
+          # Uncomment the next line if using remote backend
+          terraform init -backend-config=backend.conf
+          
 
       - name: Terraform Apply
         run: |
