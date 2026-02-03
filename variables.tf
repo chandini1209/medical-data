@@ -28,7 +28,7 @@ variable "project_name" {
 variable "s3_bucket_name" {
   description = "S3 bucket name for data storage (must be globally unique)"
   type        = string
-  default     = "medical-data-2026"
+  default     = "medical-data-2026-23"
 }
 
 variable "glue_database_name" {
