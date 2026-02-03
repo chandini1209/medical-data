@@ -1,23 +1,22 @@
 ################################################################################
-# IAM Roles and Policies
-# Permissions for Lambda functions
+# IAM Roles and Policies for Lambda Functions
+# ============================================================================
+
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+
 ################################################################################
-
-# ============================================================================
-# Conversion Lambda IAM Role
-# ============================================================================
-
+# Conversion Lambda IAM Role and Policies
+################################################################################
 resource "aws_iam_role" "conversion_lambda_role" {
   name = "${var.project_name}-conversion-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
 
@@ -27,8 +26,15 @@ resource "aws_iam_role" "conversion_lambda_role" {
   }
 }
 
-resource "aws_iam_role_policy" "conversion_lambda_policy" {
-  name = "${var.project_name}-conversion-lambda-policy"
+# Attach managed policy for CloudWatch logs
+resource "aws_iam_role_policy_attachment" "conversion_lambda_basic_logs" {
+  role       = aws_iam_role.conversion_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# S3 access policy for Conversion Lambda
+resource "aws_iam_role_policy" "conversion_lambda_s3_policy" {
+  name = "${var.project_name}-conversion-lambda-s3-policy"
   role = aws_iam_role.conversion_lambda_role.id
 
   policy = jsonencode({
@@ -43,39 +49,26 @@ resource "aws_iam_role_policy" "conversion_lambda_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "${aws_s3_bucket.data_bucket.arn}/*",
-          aws_s3_bucket.data_bucket.arn
+          aws_s3_bucket.data_bucket.arn,
+          "${aws_s3_bucket.data_bucket.arn}/*"
         ]
-      },
-      {
-        Sid    = "CloudWatchLogs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/*:*"
       }
     ]
   })
 }
 
-# ============================================================================
-# Glue Catalog Lambda IAM Role
-# ============================================================================
-
+################################################################################
+# Glue Catalog Lambda IAM Role and Policies
+################################################################################
 resource "aws_iam_role" "glue_catalog_lambda_role" {
   name = "${var.project_name}-glue-catalog-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
 
@@ -85,6 +78,13 @@ resource "aws_iam_role" "glue_catalog_lambda_role" {
   }
 }
 
+# Attach managed policy for CloudWatch logs
+resource "aws_iam_role_policy_attachment" "glue_catalog_lambda_basic_logs" {
+  role       = aws_iam_role.glue_catalog_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# S3 + Glue permissions for Glue Catalog Lambda
 resource "aws_iam_role_policy" "glue_catalog_lambda_policy" {
   name = "${var.project_name}-glue-catalog-lambda-policy"
   role = aws_iam_role.glue_catalog_lambda_role.id
@@ -100,8 +100,8 @@ resource "aws_iam_role_policy" "glue_catalog_lambda_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "${aws_s3_bucket.data_bucket.arn}/*",
-          aws_s3_bucket.data_bucket.arn
+          aws_s3_bucket.data_bucket.arn,
+          "${aws_s3_bucket.data_bucket.arn}/*"
         ]
       },
       {
@@ -124,36 +124,23 @@ resource "aws_iam_role_policy" "glue_catalog_lambda_policy" {
           "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/${var.glue_database_name}",
           "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.glue_database_name}/${var.glue_table_name}"
         ]
-      },
-      {
-        Sid    = "CloudWatchLogs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/*:*"
       }
     ]
   })
 }
 
-# ============================================================================
-# Query Lambda IAM Role
-# ============================================================================
-
+################################################################################
+# Query Lambda IAM Role and Policies
+################################################################################
 resource "aws_iam_role" "query_lambda_role" {
   name = "${var.project_name}-query-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
 
@@ -163,6 +150,13 @@ resource "aws_iam_role" "query_lambda_role" {
   }
 }
 
+# Attach managed policy for CloudWatch logs
+resource "aws_iam_role_policy_attachment" "query_lambda_basic_logs" {
+  role       = aws_iam_role.query_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# S3 + Athena + Glue access for Query Lambda
 resource "aws_iam_role_policy" "query_lambda_policy" {
   name = "${var.project_name}-query-lambda-policy"
   role = aws_iam_role.query_lambda_role.id
@@ -214,16 +208,6 @@ resource "aws_iam_role_policy" "query_lambda_policy" {
           "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.glue_database_name}/${var.glue_table_name}",
           "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.glue_database_name}/${var.glue_table_name}/*"
         ]
-      },
-      {
-        Sid    = "CloudWatchLogs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/*:*"
       }
     ]
   })
