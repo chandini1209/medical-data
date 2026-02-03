@@ -180,14 +180,7 @@ aws s3api put-bucket-versioning \
   --bucket $BACKEND_BUCKET \
   --versioning-configuration Status=Enabled
 
-# Create DynamoDB table for locking
-aws dynamodb create-table \
-  --table-name terraform-state-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region $AWS_REGION
-```
+
 
 ### 5. Initialize Terraform
 
