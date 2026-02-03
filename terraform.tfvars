@@ -16,7 +16,7 @@ project_name = "medical-data-pipeline"
 # IMPORTANT: S3 bucket name must be globally unique across all AWS accounts
 # Suggestion: use format like "company-project-env-date"
 # Example: "acme-medical-data-prod-20260202"
-s3_bucket_name = "medical-data-2026-change-me"  # ⚠️ CHANGE THIS!
+s3_bucket_name = "medical-data-2026"  # ⚠️ CHANGE THIS!
 
 # AWS Glue Configuration
 glue_database_name = "medical_data_db"
