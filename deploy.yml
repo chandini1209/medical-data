@@ -1,0 +1,211 @@
+# ============================================================================
+# GitHub Actions Workflow - Deploy Medical Data Pipeline
+# ============================================================================
+# This workflow automates deployment to AWS:
+# 1. Terraform Plan on Pull Requests
+# 2. Build & Push Docker Images to ECR
+# 3. Deploy Infrastructure with Terraform
+# ============================================================================
+
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main        # Production deployment
+      - develop     # Development deployment
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: eu-central-1
+  PROJECT_NAME: medical-data-pipeline
+  TERRAFORM_VERSION: 1.6.0
+
+jobs:
+  # ==========================================================================
+  # Job 1: Terraform Plan (on Pull Requests)
+  # ==========================================================================
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -backend-config=backend.conf
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var="lambda_image_tag=${{ github.sha }}" \
+            -out=tfplan \
+            -no-color
+        continue-on-error: false
+
+      - name: Save Plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 5
+
+  # ==========================================================================
+  # Job 2: Build and Push Docker Images
+  # ==========================================================================
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Metadata
+        id: meta
+        run: |
+          echo "tags=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Build and Push - Conversion Lambda
+        uses: docker/build-push-action@v5
+        with:
+          context: ./functions/conversion
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-conversion-lambda:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-conversion-lambda:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push - Glue Catalog Lambda
+        uses: docker/build-push-action@v5
+        with:
+          context: ./functions/glue_catalog
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-glue-catalog-lambda:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-glue-catalog-lambda:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push - Query Lambda
+        uses: docker/build-push-action@v5
+        with:
+          context: ./functions/query
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-query-lambda:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.PROJECT_NAME }}-query-lambda:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image Scan Results
+        run: |
+          echo "### Docker Images Built Successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Images pushed to ECR:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.PROJECT_NAME }}-conversion-lambda:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.PROJECT_NAME }}-glue-catalog-lambda:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.PROJECT_NAME }}-query-lambda:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================================================
+  # Job 3: Terraform Apply (Deploy Infrastructure)
+  # ==========================================================================
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -backend-config=backend.conf
+
+      - name: Terraform Apply
+        run: |
+          terraform apply -auto-approve \
+            -var="lambda_image_tag=${{ github.sha }}"
+
+      - name: Get Terraform Outputs
+        id: terraform-outputs
+        run: |
+          echo "api_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API Gateway URL:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.terraform-outputs.outputs.api_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Data Bucket:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.terraform-outputs.outputs.s3_bucket }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Image Tag:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test the API" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "curl \"${{ steps.terraform-outputs.outputs.api_url }}?query=SELECT%20*%20FROM%20medical_records%20LIMIT%2010\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
