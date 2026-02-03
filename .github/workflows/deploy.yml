@@ -3,9 +3,8 @@
 # ============================================================================
 # This workflow automates deployment to AWS:
 # 1. Terraform Plan on Pull Requests
-# 2. Create ECR Repositories (if they don't exist)
-# 3. Build & Push Docker Images to ECR
-# 4. Deploy Full Infrastructure with Terraform
+# 2. Build & Push Docker Images to ECR
+# 3. Deploy Infrastructure with Terraform
 # ============================================================================
 
 name: Deploy to AWS
@@ -13,8 +12,8 @@ name: Deploy to AWS
 on:
   push:
     branches:
-      - main
-      - develop
+      - main        # Production deployment
+      - develop     # Development deployment
   pull_request:
     branches:
       - main
@@ -74,48 +73,11 @@ jobs:
           retention-days: 5
 
   # ==========================================================================
-  # Job 2: Setup Infrastructure Prerequisites
-  # ==========================================================================
-  setup-infrastructure:
-    name: Setup ECR Repositories
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init -backend-config=backend.conf
-
-      - name: Create ECR Repositories First
-        run: |
-          echo "Creating ECR repositories if they don't exist..."
-          terraform apply -auto-approve \
-            -target=aws_ecr_repository.conversion_lambda \
-            -target=aws_ecr_repository.glue_catalog_lambda \
-            -target=aws_ecr_repository.query_lambda \
-            -target=aws_ecr_lifecycle_policy.lambda_lifecycle
-
-  # ==========================================================================
-  # Job 3: Build and Push Docker Images
+  # Job 2: Build and Push Docker Images
   # ==========================================================================
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
-    needs: setup-infrastructure
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
     outputs:
@@ -190,7 +152,7 @@ jobs:
           echo "- \`${{ env.PROJECT_NAME }}-query-lambda:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   # ==========================================================================
-  # Job 4: Terraform Apply (Deploy Full Infrastructure)
+  # Job 3: Terraform Apply (Deploy Infrastructure)
   # ==========================================================================
   terraform-apply:
     name: Terraform Apply
@@ -215,7 +177,7 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Terraform Init
-        run: terraform init -backend-config=backend.conf
+        run: terraform init    ##-backend-config=backend.conf
 
       - name: Terraform Apply
         run: |
