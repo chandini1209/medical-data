@@ -1,17 +1,22 @@
 # ============================================================================
 # Dockerfile for CSV to Parquet Conversion Lambda
 # ============================================================================
-# Base image: AWS Lambda Python 3.11
 FROM public.ecr.aws/lambda/python:3.11
+
+# Install build dependencies
+RUN yum install -y gcc gcc-c++ cmake
+
+# Upgrade pip
+RUN pip install --upgrade pip
 
 # Copy requirements file
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 
-# Install system dependencies (gcc compiler), upgrade pip, install Python packages, then clean up
-RUN yum install -y gcc gcc-c++ cmake && \
-    pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    yum remove -y gcc gcc-c++ cmake && \
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Clean up build dependencies to reduce image size
+RUN yum remove -y gcc gcc-c++ cmake && \
     yum clean all && \
     rm -rf /var/cache/yum
 
